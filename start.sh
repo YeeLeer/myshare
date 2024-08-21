@@ -267,7 +267,7 @@ EOF
 }
 
 args() {
-if [ -e ${FILE_PATH}/server ] && [ ${openserver} -eq 1 ]; then
+if [ -e ${FILE_PATH}/server ]; then
   if [ -n "$(echo "$ARGO_AUTH" | grep '^[A-Z0-9a-z=]\{120,250\}$')" ]; then
     args="tunnel --edge-ip-version auto --protocol http2 run --url http://localhost:$V_PORT --token ${ARGO_AUTH}"
   elif [ -n "$(echo "$ARGO_AUTH" | grep TunnelSecret)" ]; then
@@ -285,9 +285,9 @@ args
 # 上传订阅
 upload_subscription() {
     if [ "$download_tool" = "curl" ]; then
-        response=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$up_url\"}" $SUB_URL)
+        response=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$UPLOAD_DATA\"}" $SUB_URL)
     else
-        response=$(wget -qO- --post-data="{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$up_url\"}" --header="Content-Type: application/json" $SUB_URL)
+        response=$(wget -qO- --post-data="{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$UPLOAD_DATA\"}" --header="Content-Type: application/json" $SUB_URL)
     fi
 
     # 代码检查最后一个命令是否运行没有任何问题。如果是，则将执行随后的代码块
@@ -321,7 +321,7 @@ build_urls() {
   export VMESS="{ \"v\": \"2\", \"ps\": \"vmess-${country_abbreviation}-${SUB_NAME}\", \"add\": \"${CF_IP}\", \"port\": \"${CFPORT}\", \"id\": \"${UUID}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${ARGO_DOMAIN}\", \"path\": \"/${VMESS_WSPATH}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${ARGO_DOMAIN}\", \"alpn\": \"\" }"
 
 vless_url="vless://${UUID}@${CF_IP}:${CFPORT}?host=${ARGO_DOMAIN}&path=%2F${VLESS_WSPATH}%3Fed%3D2048&type=ws&encryption=none&security=tls&sni=${ARGO_DOMAIN}#vless-${country_abbreviation}-${SUB_NAME}"
-export UPLOAD_DATA
+export UPLOAD_DATA="$vless_url"
 }
 
 # run
