@@ -1,9 +1,208 @@
 #!/usr/bin/env bash
 
-YML_FILE="./c.yml"
+# 设置 Github CDN 及若干变量
+export GH_PROXY=${GH_PROXY:-''}  # 国外不填
+export GRPC_PROXY_PORT=${GRPC_PROXY_PORT:-'443'}
+export GRPC_PORT=${GRPC_PORT:-'5555'}
+export WEB_PORT="$SERVER_PORT"  # discord玩具自动  cf隧道按F佬格式，http端口用玩具端口。其他不变
+# export WEB_PORT=${WEB_PORT:-'80'}} # 其他nodejs
+export CADDY_HTTP_PORT=${CADDY_HTTP_PORT:-'2052'}
+export LOCAL_TOKEN=${LOCAL_TOKEN:-'abcdefghijklmnopqr'}  # 本地key
 
-if [ -s "$YML_FILE" ]; then
-    source "$YML_FILE"
+# openkeepalive为1时保活进程,为0或者为空时不保活进程
+export openkeepalive=${openkeepalive:-'1'}
+
+# 自己填写这段变量
+export GH_USER=${GH_USER:-''}
+export ARGO_DOMAIN=${ARGO_DOMAIN:-''}
+export ARGO_AUTH=${ARGO_AUTH:-''}
+export GH_CLIENTID=${GH_CLIENTID:-''}
+export GH_CLIENTSECRET=${GH_CLIENTSECRET:-''}
+
+error() { echo -e "\033[31m\033[01m$*\033[0m" && exit 1; } # 红色
+info() { echo -e "\033[32m\033[01m$*\033[0m"; }   # 绿色
+hint() { echo -e "\033[33m\033[01m$*\033[0m"; }   # 黄色
+
+# 如参数不齐全，容器退出，另外处理某些环境变量填错后的处理
+[[ -z "$GH_USER" || -z "$GH_CLIENTID" || -z "$GH_CLIENTSECRET" ]] && error " There are variables that are not set. "
+[[ "$ARGO_AUTH" =~ ey[A-Z0-9a-z=]{120,250}$ ]] && ARGO_AUTH=$(awk '{print $NF}' <<< "$ARGO_AUTH") # Token 复制全部，只取最后的 ey 开始的
+
+# 检测是否需要启用 Github CDN，如能直接连通，则不使用
+[ -n "$GH_PROXY" ] && wget --server-response --quiet --output-document=/dev/null --no-check-certificate --tries=2 --timeout=3 https://raw.githubusercontent.com/fscarmen2/Argo-Nezha-Service-Container/main/README.md >/dev/null 2>&1 && unset GH_PROXY
+
+# 判断处理器架构
+case "$(uname -m)" in
+  aarch64|arm64 )
+    ARCH=arm64
+    ;;
+  x86_64|amd64 )
+    ARCH=amd64
+    ;;
+  armv7* )
+    ARCH=arm
+    ;;
+  * ) error ""
+esac
+
+# 下载需要的应用
+[ ! -d data ] && mkdir data
+
+if [ ! -f caddy ]; then
+  CADDY_LATEST=$(wget -qO- "${GH_PROXY}https://api.github.com/repos/caddyserver/caddy/releases/latest" | awk -F [v\"] '/"tag_name"/{print $5}' || echo '2.7.6')
+  # wget -c ${GH_PROXY}https://github.com/caddyserver/caddy/releases/download/v${CADDY_LATEST}/caddy_${CADDY_LATEST}_linux_${ARCH}.tar.gz -qO- | tar xz -C . caddy
+  curl -fsSL "${GH_PROXY}https://github.com/caddyserver/caddy/releases/download/v${CADDY_LATEST}/caddy_${CADDY_LATEST}_linux_${ARCH}.tar.gz" | tar xz -C . caddy
 fi
 
-echo "aWYgWyAhIC1kICIkRklMRV9QQVRIIiBdOyB0aGVuCiAgbWtkaXIgLXAgIiRGSUxFX1BBVEgiCmZpCgpjbGVhbnVwX2ZpbGVzKCkgewogIHJtIC1yZiAke0ZJTEVfUEFUSH0vYm9vdC5sb2cgJHtGSUxFX1BBVEh9L291dC5qc29uICR7RklMRV9QQVRIfS8qLnR4dCAke0ZJTEVfUEFUSH0vKi5zaAp9CmNsZWFudXBfZmlsZXMKCiMgRG93bmxvYWQgRGVwZW5kZW5jeSBGaWxlcwpzZXRfZG93bmxvYWRfdXJsKCkgewogIGxvY2FsIHByb2dyYW1fbmFtZT0iJDEiCiAgbG9jYWwgZGVmYXVsdF91cmw9IiQyIgogIGxvY2FsIHg2NF91cmw9IiQzIgoKICBpZiBbICIkKHVuYW1lIC1tKSIgPSAieDg2XzY0IiBdIHx8IFsgIiQodW5hbWUgLW0pIiA9ICJhbWQ2NCIgXSB8fCBbICIkKHVuYW1lIC1tKSIgPSAieDY0IiBdOyB0aGVuCiAgICBkb3dubG9hZF91cmw9IiR4NjRfdXJsIgogIGVsc2UKICAgIGRvd25sb2FkX3VybD0iJGRlZmF1bHRfdXJsIgogIGZpCn0KCmRvd25sb2FkX3Byb2dyYW0oKSB7CiAgbG9jYWwgcHJvZ3JhbV9uYW1lPSIkMSIKICBsb2NhbCBkZWZhdWx0X3VybD0iJDIiCiAgbG9jYWwgeDY0X3VybD0iJDMiCgogIHNldF9kb3dubG9hZF91cmwgIiRwcm9ncmFtX25hbWUiICIkZGVmYXVsdF91cmwiICIkeDY0X3VybCIKCiAgaWYgWyAhIC1mICIkcHJvZ3JhbV9uYW1lIiBdOyB0aGVuCiAgICBpZiBbIC1uICIkZG93bmxvYWRfdXJsIiBdOyB0aGVuCiAgICAgIGVjaG8gIkRvd25sb2FkaW5nICRwcm9ncmFtX25hbWUuLi4iID4gL2Rldi9udWxsCiAgICAgICMgd2dldCAtcU8gIiRwcm9ncmFtX25hbWUiICIkZG93bmxvYWRfdXJsIgogICAgICBjdXJsIC1zU0wgIiRkb3dubG9hZF91cmwiIC1vICIkcHJvZ3JhbV9uYW1lIgogICAgICBlY2hvICJEb3dubG9hZGVkICRwcm9ncmFtX25hbWUiID4gL2Rldi9udWxsCiAgICBlbHNlCiAgICAgIGVjaG8gIlNraXBwaW5nIGRvd25sb2FkIGZvciAkcHJvZ3JhbV9uYW1lIiA+IC9kZXYvbnVsbAogICAgZmkKICBlbHNlCiAgICBlY2hvICIkcHJvZ3JhbV9uYW1lIGFscmVhZHkgZXhpc3RzLCBza2lwcGluZyBkb3dubG9hZCIgPiAvZGV2L251bGwKICBmaQp9CgppZiBbIC1uICIke05FWkhBX1NFUlZFUn0iIF0gJiYgWyAtbiAiJHtORVpIQV9LRVl9IiBdOyB0aGVuCiAgZG93bmxvYWRfcHJvZ3JhbSAiJHtGSUxFX1BBVEh9L2FnZW50IiAiaHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2thaHVuYW1hL215ZmlsZS9tYWluL25lemhhL25lemhhLWFnZW50KGFybSkiICJodHRwczovL3Jhdy5naXRodWJ1c2VyY29udGVudC5jb20va2FodW5hbWEvbXlmaWxlL21haW4vbmV6aGEvbmV6aGEtYWdlbnQiCiAgY2htb2QgK3ggJHtGSUxFX1BBVEh9L2FnZW50CiAgc2xlZXAgMwpmaQoKZG93bmxvYWRfcHJvZ3JhbSAiJHtGSUxFX1BBVEh9L3dlYiIgImh0dHBzOi8vcmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbS9rYWh1bmFtYS9teWZpbGUvbWFpbi9teS93ZWIuanMoYXJtKSIgImh0dHBzOi8vcmF3LmdpdGh1YnVzZXJjb250ZW50LmNvbS9rYWh1bmFtYS9teWZpbGUvbWFpbi9teS93ZWIuanMiCmNobW9kICt4ICR7RklMRV9QQVRIfS93ZWIKc2xlZXAgMwoKaWYgWyAke29wZW5zZXJ2ZXJ9IC1lcSAxIF07IHRoZW4KICBkb3dubG9hZF9wcm9ncmFtICIke0ZJTEVfUEFUSH0vc2VydmVyIiAiaHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFybTY0IiAiaHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZmxhcmUvY2xvdWRmbGFyZWQvcmVsZWFzZXMvbGF0ZXN0L2Rvd25sb2FkL2Nsb3VkZmxhcmVkLWxpbnV4LWFtZDY0IgogIGNobW9kICt4ICR7RklMRV9QQVRIfS9zZXJ2ZXIKICBzbGVlcCAzCmZpCgppZiBbIC1uICIke1NVQl9VUkx9IiBdOyB0aGVuCiAgZG93bmxvYWRfcHJvZ3JhbSAiJHtGSUxFX1BBVEh9L3VwLnNoIiAiaHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL215dGNnZC9teWZpbGVzL21haW4vbXkveC91cF9zLnNoIiAiaHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL215dGNnZC9teWZpbGVzL21haW4vbXkveC91cF9zLnNoIgogIGNobW9kICt4ICR7RklMRV9QQVRIfS91cC5zaAogIHNsZWVwIDMKZmkKCiMgR2VuZXJhdGUgY29uZmlndXJhdGlvbgpnZW5lcmF0ZV9jb25maWcoKSB7CiAgY2F0ID4gJHtGSUxFX1BBVEh9L291dC5qc29uIDw8IEVPRgp7CiAgICAibG9nIjp7CiAgICAgICAgImFjY2VzcyI6Ii9kZXYvbnVsbCIsCiAgICAgICAgImVycm9yIjoiL2Rldi9udWxsIiwKICAgICAgICAibG9nbGV2ZWwiOiJub25lIgogICAgfSwKICAgICJpbmJvdW5kcyI6WwogICAgICAgIHsKICAgICAgICAgICAgInBvcnQiOiRWX1BPUlQsCiAgICAgICAgICAgICJwcm90b2NvbCI6InZsZXNzIiwKICAgICAgICAgICAgInNldHRpbmdzIjp7CiAgICAgICAgICAgICAgICAiY2xpZW50cyI6WwogICAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgICAgImlkIjoiJHtVVUlEfSIsCiAgICAgICAgICAgICAgICAgICAgICAgICJmbG93IjoieHRscy1ycHJ4LXZpc2lvbiIKICAgICAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgICAgICBdLAogICAgICAgICAgICAgICAgImRlY3J5cHRpb24iOiJub25lIiwKICAgICAgICAgICAgICAgICJmYWxsYmFja3MiOlsKICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICJkZXN0IjozMDAxCiAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICJwYXRoIjoiLyR7VkxFU1NfV1NQQVRIfSIsCiAgICAgICAgICAgICAgICAgICAgICAgICJkZXN0IjozMDAyCiAgICAgICAgICAgICAgICAgICAgfSwKICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICJwYXRoIjoiLyR7Vk1FU1NfV1NQQVRIfSIsCiAgICAgICAgICAgICAgICAgICAgICAgICJkZXN0IjozMDAzCiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgXQogICAgICAgICAgICB9LAogICAgICAgICAgICAic3RyZWFtU2V0dGluZ3MiOnsKICAgICAgICAgICAgICAgICJuZXR3b3JrIjoidGNwIgogICAgICAgICAgICB9CiAgICAgICAgfSwKICAgICAgICB7CiAgICAgICAgICAgICJwb3J0IjozMDAxLAogICAgICAgICAgICAibGlzdGVuIjoiMTI3LjAuMC4xIiwKICAgICAgICAgICAgInByb3RvY29sIjoidmxlc3MiLAogICAgICAgICAgICAic2V0dGluZ3MiOnsKICAgICAgICAgICAgICAgICJjbGllbnRzIjpbCiAgICAgICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgICAgICAiaWQiOiIke1VVSUR9IgogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIF0sCiAgICAgICAgICAgICAgICAiZGVjcnlwdGlvbiI6Im5vbmUiCiAgICAgICAgICAgIH0sCiAgICAgICAgICAgICJzdHJlYW1TZXR0aW5ncyI6ewogICAgICAgICAgICAgICAgIm5ldHdvcmsiOiJ3cyIsCiAgICAgICAgICAgICAgICAic2VjdXJpdHkiOiJub25lIgogICAgICAgICAgICB9CiAgICAgICAgfSwKICAgICAgICB7CiAgICAgICAgICAgICJwb3J0IjozMDAyLAogICAgICAgICAgICAibGlzdGVuIjoiMTI3LjAuMC4xIiwKICAgICAgICAgICAgInByb3RvY29sIjoidmxlc3MiLAogICAgICAgICAgICAic2V0dGluZ3MiOnsKICAgICAgICAgICAgICAgICJjbGllbnRzIjpbCiAgICAgICAgICAgICAgICAgICAgewogICAgICAgICAgICAgICAgICAgICAgICAiaWQiOiIke1VVSUR9IiwKICAgICAgICAgICAgICAgICAgICAgICAgImxldmVsIjowCiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgXSwKICAgICAgICAgICAgICAgICJkZWNyeXB0aW9uIjoibm9uZSIKICAgICAgICAgICAgfSwKICAgICAgICAgICAgInN0cmVhbVNldHRpbmdzIjp7CiAgICAgICAgICAgICAgICAibmV0d29yayI6IndzIiwKICAgICAgICAgICAgICAgICJzZWN1cml0eSI6Im5vbmUiLAogICAgICAgICAgICAgICAgIndzU2V0dGluZ3MiOnsKICAgICAgICAgICAgICAgICAgICAicGF0aCI6Ii8ke1ZMRVNTX1dTUEFUSH0iCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0sCiAgICAgICAgICAgICJzbmlmZmluZyI6ewogICAgICAgICAgICAgICAgImVuYWJsZWQiOnRydWUsCiAgICAgICAgICAgICAgICAiZGVzdE92ZXJyaWRlIjpbCiAgICAgICAgICAgICAgICAgICAgImh0dHAiLAogICAgICAgICAgICAgICAgICAgICJ0bHMiLAogICAgICAgICAgICAgICAgICAgICJxdWljIgogICAgICAgICAgICAgICAgXSwKICAgICAgICAgICAgICAgICJtZXRhZGF0YU9ubHkiOmZhbHNlCiAgICAgICAgICAgIH0KICAgICAgICB9LAogICAgICAgIHsKICAgICAgICAgICAgInBvcnQiOjMwMDMsCiAgICAgICAgICAgICJsaXN0ZW4iOiIxMjcuMC4wLjEiLAogICAgICAgICAgICAicHJvdG9jb2wiOiJ2bWVzcyIsCiAgICAgICAgICAgICJzZXR0aW5ncyI6ewogICAgICAgICAgICAgICAgImNsaWVudHMiOlsKICAgICAgICAgICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAgICAgICAgICJpZCI6IiR7VVVJRH0iLAogICAgICAgICAgICAgICAgICAgICAgICAiYWx0ZXJJZCI6MAogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIF0KICAgICAgICAgICAgfSwKICAgICAgICAgICAgInN0cmVhbVNldHRpbmdzIjp7CiAgICAgICAgICAgICAgICAibmV0d29yayI6IndzIiwKICAgICAgICAgICAgICAgICJ3c1NldHRpbmdzIjp7CiAgICAgICAgICAgICAgICAgICAgInBhdGgiOiIvJHtWTUVTU19XU1BBVEh9IgogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9LAogICAgICAgICAgICAic25pZmZpbmciOnsKICAgICAgICAgICAgICAgICJlbmFibGVkIjp0cnVlLAogICAgICAgICAgICAgICAgImRlc3RPdmVycmlkZSI6WwogICAgICAgICAgICAgICAgICAgICJodHRwIiwKICAgICAgICAgICAgICAgICAgICAidGxzIiwKICAgICAgICAgICAgICAgICAgICAicXVpYyIKICAgICAgICAgICAgICAgIF0sCiAgICAgICAgICAgICAgICAibWV0YWRhdGFPbmx5IjpmYWxzZQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgXSwKICAgICJkbnMiOnsKICAgICAgICAic2VydmVycyI6WwogICAgICAgICAgICAiaHR0cHMrbG9jYWw6Ly84LjguOC44L2Rucy1xdWVyeSIKICAgICAgICBdCiAgICB9LAogICAgIm91dGJvdW5kcyI6WwogICAgICAgIHsKICAgICAgICAgICAgInByb3RvY29sIjoiZnJlZWRvbSIKICAgICAgICB9LAogICAgICAgIHsKICAgICAgICAgICAgInRhZyI6IldBUlAiLAogICAgICAgICAgICAicHJvdG9jb2wiOiJ3aXJlZ3VhcmQiLAogICAgICAgICAgICAic2V0dGluZ3MiOnsKICAgICAgICAgICAgICAgICJzZWNyZXRLZXkiOiJZRllPQWRidzFiS1RIbE5OaSthRWpCTTNCTzd1bnVGQzVyT2tNUkF6OVhZPSIsCiAgICAgICAgICAgICAgICAiYWRkcmVzcyI6WwogICAgICAgICAgICAgICAgICAgICIxNzIuMTYuMC4yLzMyIiwKICAgICAgICAgICAgICAgICAgICAiMjYwNjo0NzAwOjExMDo4YTM2OmRmOTI6MTAyYTo5NjAyOmZhMTgvMTI4IgogICAgICAgICAgICAgICAgXSwKICAgICAgICAgICAgICAgICJwZWVycyI6WwogICAgICAgICAgICAgICAgICAgIHsKICAgICAgICAgICAgICAgICAgICAgICAgInB1YmxpY0tleSI6ImJtWE9DK0YxRnhFTUY5ZHlpSzJINS8xU1V0ekgwSnVWbzUxaDJ3UGZneW89IiwKICAgICAgICAgICAgICAgICAgICAgICAgImFsbG93ZWRJUHMiOlsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICIwLjAuMC4wLzAiLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgIjo6LzAiCiAgICAgICAgICAgICAgICAgICAgICAgIF0sCiAgICAgICAgICAgICAgICAgICAgICAgICJlbmRwb2ludCI6IjE2Mi4xNTkuMTkzLjEwOjI0MDgiCiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgXSwKICAgICAgICAgICAgICAgICJyZXNlcnZlZCI6Wzc4LCAxMzUsIDc2XSwKICAgICAgICAgICAgICAgICJtdHUiOjEyODAKICAgICAgICAgICAgfQogICAgICAgIH0KICAgIF0sCiAgICAicm91dGluZyI6ewogICAgICAgICJkb21haW5TdHJhdGVneSI6IkFzSXMiLAogICAgICAgICJydWxlcyI6WwogICAgICAgICAgICB7CiAgICAgICAgICAgICAgICAidHlwZSI6ImZpZWxkIiwKICAgICAgICAgICAgICAgICJkb21haW4iOlsKICAgICAgICAgICAgICAgICAgICAiZG9tYWluOm9wZW5haS5jb20iLAogICAgICAgICAgICAgICAgICAgICJkb21haW46YWkuY29tIgogICAgICAgICAgICAgICAgXSwKICAgICAgICAgICAgICAgICJvdXRib3VuZFRhZyI6IldBUlAiCiAgICAgICAgICAgIH0KICAgICAgICBdCiAgICB9Cn0KRU9GCn0KCmFyZ29fdHlwZSgpIHsKICBpZiBbIC16ICIkQVJHT19BVVRIIiBdICYmIFsgLXogIiRBUkdPX0RPTUFJTiIgXTsgdGhlbgogICAgZWNobyAiQVJHT19BVVRIIG9yIEFSR09fRE9NQUlOIGlzIGVtcHR5LCB1c2UgUXVpY2sgVHVubmVscyIgPiAvZGV2L251bGwKICAgIHJldHVybgogIGZpCgogIGlmIFsgLW4gIiQoZWNobyAiJEFSR09fQVVUSCIgfCBncmVwIFR1bm5lbFNlY3JldCkiIF07IHRoZW4KICAgIGVjaG8gJEFSR09fQVVUSCA+IHR1bm5lbC5qc29uCiAgICBjYXQgPiB0dW5uZWwueW1sIDw8IEVPRgp0dW5uZWw9JChlY2hvICIkQVJHT19BVVRIIiB8IGN1dCAtZFwiIC1mMTIpCmNyZWRlbnRpYWxzLWZpbGU6IC4vdHVubmVsLmpzb24KcHJvdG9jb2w6IGh0dHAyCgppbmdyZXNzOgogIC0gaG9zdG5hbWU6ICRBUkdPX0RPTUFJTgogICAgc2VydmljZTogaHR0cDovL2xvY2FsaG9zdDogJFZfUE9SVAogICAgb3JpZ2luUmVxdWVzdDoKICAgICAgbm9UTFNWZXJpZnk6IHRydWUKICAtIHNlcnZpY2U6IGh0dHBfc3RhdHVzOjQwNApFT0YKICBlbHNlCiAgICBlY2hvICJBUkdPX0FVVEggTWlzbWF0Y2ggVHVubmVsU2VjcmV0IiA+IC9kZXYvbnVsbAogIGZpCn0KCmFyZ3MoKSB7CmlmIFsgLWUgJHtGSUxFX1BBVEh9L3NlcnZlciBdICYmIFsgJHtvcGVuc2VydmVyfSAtZXEgMSBdOyB0aGVuCiAgaWYgWyAtbiAiJChlY2hvICIkQVJHT19BVVRIIiB8IGdyZXAgJ15bQS1aMC05YS16PV1cezEyMCwyNTBcfSQnKSIgXTsgdGhlbgogICAgYXJncz0idHVubmVsIC0tZWRnZS1pcC12ZXJzaW9uIGF1dG8gLS1wcm90b2NvbCBodHRwMiAtLWxvZ2ZpbGUgJHtGSUxFX1BBVEh9L2Jvb3QubG9nIHJ1biAtLXVybCBodHRwOi8vbG9jYWxob3N0OiRWX1BPUlQgLS10b2tlbiAke0FSR09fQVVUSH0iCiAgZWxpZiBbIC1uICIkKGVjaG8gIiRBUkdPX0FVVEgiIHwgZ3JlcCBUdW5uZWxTZWNyZXQpIiBdOyB0aGVuCiAgICBhcmdzPSJ0dW5uZWwgLS1lZGdlLWlwLXZlcnNpb24gYXV0byAtLWNvbmZpZyB0dW5uZWwueW1sIHJ1biIKICBlbHNlCiAgICBhcmdzPSJ0dW5uZWwgLS1lZGdlLWlwLXZlcnNpb24gYXV0byAtLXByb3RvY29sIGh0dHAyIC0tbm8tYXV0b3VwZGF0ZSAtLWxvZ2ZpbGUgJHtGSUxFX1BBVEh9L2Jvb3QubG9nIC0tdXJsIGh0dHA6Ly9sb2NhbGhvc3Q6JFZfUE9SVCIKICBmaQpmaQp9CgpnZW5lcmF0ZV9jb25maWcKYXJnb190eXBlCmFyZ3MKCiMgcnVuCnJ1bigpIHsKICAjIG9wZW5zZXJ2ZXLnrYnkuo4xCiAgaWYgWyAtZSAke0ZJTEVfUEFUSH0vc2VydmVyIF0gJiYgWyAke29wZW5zZXJ2ZXJ9IC1lcSAxIF07IHRoZW4KICAgIFtbICQocGlkb2Ygc2VydmVyKSBdXSAmJiByZXR1cm4KICAgICR7RklMRV9QQVRIfS9zZXJ2ZXIgJGFyZ3MgPi9kZXYvbnVsbCAyPiYxICYKICBmaQoKICBpZiBbIC1lICR7RklMRV9QQVRIfS93ZWIgXTsgdGhlbgogICAgW1sgJChwaWRvZiB3ZWIpIF1dICYmIHJldHVybgogICAgJHtGSUxFX1BBVEh9L3dlYiBydW4gLWMgJHtGSUxFX1BBVEh9L291dC5qc29uID4vZGV2L251bGwgMj4mMSAmCiAgZmkKCiAgaWYgWyAtbiAiJHtORVpIQV9TRVJWRVJ9IiBdICYmIFsgLW4gIiR7TkVaSEFfS0VZfSIgXSAmJiBbIC1lICR7RklMRV9QQVRIfS9hZ2VudCBdOyB0aGVuCiAgICBbWyAkKHBpZG9mIGFnZW50KSBdXSAmJiByZXR1cm4KICAgIHRsc1BvcnRzPSgiNDQzIiAiODQ0MyIgIjIwOTYiICIyMDg3IiAiMjA4MyIgIjIwNTMiKQogICAgaWYgW1sgIiAke3Rsc1BvcnRzW0BdfSAiID1+ICIgJHtORVpIQV9QT1JUfSAiIF1dOyB0aGVuCiAgICAgIE5FWkhBX1RMUz0iLS10bHMiCiAgICBlbHNlCiAgICAgIE5FWkhBX1RMUz0iIgogICAgZmkKICAgICR7RklMRV9QQVRIfS9hZ2VudCAtcyAke05FWkhBX1NFUlZFUn06JHtORVpIQV9QT1JUfSAtcCAke05FWkhBX0tFWX0gJHtORVpIQV9UTFN9ID4vZGV2L251bGwgMj4mMSAmCiAgZmkKfQoKcnVuCgpzbGVlcCAzMAoKIyBnZXQgSVAgYW5kIGNvdW50cnkKZXhwb3J0IHNlcnZlcl9pcD0kKGN1cmwgLXMgaHR0cHM6Ly9zcGVlZC5jbG91ZGZsYXJlLmNvbS9tZXRhIHwgdHIgJywnICdcbicgfCBncmVwIC1FICciY2xpZW50SXAiXHMqOlxzKiInIHwgc2VkICdzLy4qImNsaWVudElwIlxzKjpccyoiXChbXiJdKlwpIi4qL1wxLycpCiMgZXhwb3J0IHNlcnZlcl9pcD0kKGN1cmwgLXMgaHR0cHM6Ly9pcHY0LmljYW5oYXppcC5jb20pCmV4cG9ydCBjb3VudHJ5X2FiYnJldmlhdGlvbj0kKGN1cmwgLXMgaHR0cHM6Ly9zcGVlZC5jbG91ZGZsYXJlLmNvbS9tZXRhIHwgdHIgJywnICdcbicgfCBncmVwIC1FICciY291bnRyeSJccyo6XHMqIicgfCBzZWQgJ3MvLioiY291bnRyeSJccyo6XHMqIlwoW14iXSpcKSIuKi9cMS8nKQoKIyBsaXN0Cmxpc3QoKSB7CiAgaWYgWyAteiAiJEFSR09fQVVUSCIgXSAmJiBbIC16ICIkQVJHT19ET01BSU4iIF0gJiYgWyAtZSAke0ZJTEVfUEFUSH0vc2VydmVyIF07IHRoZW4KICAgIFsgLXMgJHtGSUxFX1BBVEh9L2Jvb3QubG9nIF0gJiYgZXhwb3J0IEFSR09fRE9NQUlOPSQoY2F0ICR7RklMRV9QQVRIfS9ib290LmxvZyB8IGdyZXAgLW8gImluZm8uKmh0dHBzOi8vLip0cnljbG91ZGZsYXJlLmNvbSIgfCBzZWQgInNALipodHRwczovL0BAZyIgfCB0YWlsIC1uIDEpCiAgZmkKCiAgIyBvcGVuc2VydmVy5LiN562J5LqOMQogIGlmIFsgJHtvcGVuc2VydmVyfSAtbmUgMSBdOyB0aGVuCiAgICBlY2hvICJQbGVhc2Ugc2V0IHVwIHRoZSBjZiByZXZlcnNlIHByb3h5IGRvbWFpbiBuYW1lISIKICAgIGV4cG9ydCBBUkdPX0RPTUFJTj0iJE1ZX0RPTUFJTiIKICBmaQoKVk1FU1M9InsgXCJ2XCI6IFwiMlwiLCBcInBzXCI6IFwidm1lc3MtJHtjb3VudHJ5X2FiYnJldmlhdGlvbn0tJHtTVUJfTkFNRX1cIiwgXCJhZGRcIjogXCIke0NGX0lQfVwiLCBcInBvcnRcIjogXCIke0NGUE9SVH1cIiwgXCJpZFwiOiBcIiR7VVVJRH1cIiwgXCJhaWRcIjogXCIwXCIsIFwic2N5XCI6IFwibm9uZVwiLCBcIm5ldFwiOiBcIndzXCIsIFwidHlwZVwiOiBcIm5vbmVcIiwgXCJob3N0XCI6IFwiJHtBUkdPX0RPTUFJTn1cIiwgXCJwYXRoXCI6IFwiLyR7Vk1FU1NfV1NQQVRIfT9lZD0yMDQ4XCIsIFwidGxzXCI6IFwidGxzXCIsIFwic25pXCI6IFwiJHtBUkdPX0RPTUFJTn1cIiwgXCJhbHBuXCI6IFwiXCIgfSIKCiAgY2F0ID4gJHtGSUxFX1BBVEh9L2xpc3QudHh0IDw8IEFCQwoqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioKCiAgICAgIElQIDogJHtzZXJ2ZXJfaXB9ICAgICBDb3VudHJ577yaICR7Y291bnRyeV9hYmJyZXZpYXRpb259CgoqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioKCnZtZXNzOi8vJChlY2hvICIkVk1FU1MiIHwgYmFzZTY0IHwgdHIgLWQgJ1xuJykKCnZsZXNzOi8vJHtVVUlEfUAke0NGX0lQfToke0NGUE9SVH0/aG9zdD0ke0FSR09fRE9NQUlOfSZwYXRoPSUyRiR7VkxFU1NfV1NQQVRIfSUzRmVkJTNEMjA0OCZ0eXBlPXdzJmVuY3J5cHRpb249bm9uZSZzZWN1cml0eT10bHMmc25pPSR7QVJHT19ET01BSU59I3ZsZXNzLSR7Y291bnRyeV9hYmJyZXZpYXRpb259LSR7U1VCX05BTUV9CgoqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioKQUJDCn0KCiMgdXAKaWYgWyAteiAiJFNVQl9VUkwiIF07IHRoZW4KICBsaXN0CmVsc2UKICBsaXN0CiAgW1sgJChwaWRvZiB1cC5zaCkgXV0gJiYgcmV0dXJuCiAgYmFzaCAke0ZJTEVfUEFUSH0vdXAuc2ggPi9kZXYvbnVsbCAyPiYxICYKZmkK" | base64 -d | bash
+if [ ! -f dashboard ]; then
+  DASHBOARD_LATEST=$(wget -qO- "${GH_PROXY}https://api.github.com/repos/naiba/nezha/releases/latest" | awk -F '"' '/"tag_name"/{print $4}')
+  # wget -O dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
+  curl -sSL ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip -o dashboard.zip
+  unzip dashboard.zip -d . >/dev/null
+  mv -f ./dist/dashboard-linux-$ARCH dashboard
+  rm -rf dist dashboard.zip
+fi
+
+if [ ! -f cloudflared ]; then
+  # wget -qO cloudflared ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH
+  curl -sSL ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH -o cloudflared
+fi
+
+if [ ! -f nezha-agent ]; then
+  # wget -O nezha-agent.zip ${GH_PROXY}https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_$ARCH.zip
+  curl -sSL ${GH_PROXY}https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_$ARCH.zip -o nezha-agent.zip
+  unzip nezha-agent.zip -d . >/dev/null
+  rm -rf nezha-agent.zip
+fi
+
+# 根据参数生成哪吒服务端配置文件
+  cat > ./data/config.yaml << ABC
+Debug: false
+HTTPPort: $WEB_PORT
+Language: zh-CN
+GRPCPort: $GRPC_PORT
+GRPCHost: $ARGO_DOMAIN
+ProxyGRPCPort: $GRPC_PROXY_PORT
+TLS: true
+Oauth2:
+  Type: "github" #Oauth2 登录接入类型，github/gitlab/jihulab/gitee/gitea ## Argo-容器版本只支持 github
+  Admin: "$GH_USER" #管理员列表，半角逗号隔开
+  ClientID: "$GH_CLIENTID" # 在 ${GH_PROXY}https://github.com/settings/developers 创建，无需审核 Callback 填 http(s)://域名或IP/oauth2/callback
+  ClientSecret: "$GH_CLIENTSECRET"
+  Endpoint: "" # 如gitea自建需要设置 ## Argo-容器版本只支持 github
+site:
+  Brand: "Nezha Probe"
+  Cookiename: "nezha-dashboard" #浏览器 Cookie 字段名，可不改
+  Theme: "default"
+ABC
+
+  cat > Caddyfile  << EOF
+{
+    http_port $CADDY_HTTP_PORT
+}
+
+:$GRPC_PROXY_PORT {
+    reverse_proxy {
+        to localhost:$GRPC_PORT
+        transport http {
+            versions h2c 2
+        }
+    }
+    tls nezha.pem nezha.key
+}
+EOF
+
+# 生成自签署SSL证书
+openssl genrsa -out nezha.key 2048 > /dev/null 2>&1
+openssl req -new -subj "/CN=$ARGO_DOMAIN" -key nezha.key -out nezha.csr > /dev/null 2>&1
+openssl x509 -req -days 36500 -in nezha.csr -signkey nezha.key -out nezha.pem > /dev/null 2>&1
+
+# 运行
+run_caddy() {
+  if [ -e caddy ]; then
+    chmod +x caddy
+    ./caddy run --config Caddyfile --watch > /dev/null 2>&1 &
+  fi
+}
+
+run_cloudflared() {
+  if [ -e cloudflared ]; then
+    chmod +x cloudflared
+    cat > cfstart.sh << DEF
+#!/usr/bin/env bash
+
+./cloudflared tunnel --edge-ip-version auto --protocol http2 run --token ${ARGO_AUTH} > /dev/null 2>&1 &
+DEF
+    [ -e cfstart.sh ] && chmod +x cfstart.sh && bash cfstart.sh
+  fi
+}
+
+run_dashboard() {
+  if [ -e dashboard ]; then
+    chmod +x dashboard
+    ./dashboard > /dev/null 2>&1 &
+  fi
+}
+
+run_agent() {
+  if [ -e nezha-agent ]; then
+    chmod +x nezha-agent
+    cat > nzstart.sh << KLM
+#!/usr/bin/env bash
+
+./nezha-agent -s localhost:$GRPC_PORT -p $LOCAL_TOKEN > /dev/null 2>&1 &
+KLM
+    [ -e nzstart.sh ] && chmod +x nzstart.sh && bash nzstart.sh
+  fi
+}
+
+keep_alive() {
+  if [[ $(pgrep -laf caddy) ]]; then
+    hint "caddy is already running !"
+  else
+    run_caddy
+    info "caddy runs again !"
+  fi
+
+  if [[ $(pgrep -laf cloudflared) ]]; then
+    hint "cloudflared is already running !"
+  else
+    run_cloudflared
+    info "cloudflared runs again !"
+  fi
+
+  if [[ $(pgrep -laf dashboard) ]]; then
+    hint "dashboard is already running !"
+  else
+    run_dashboard
+    info "dashboard runs again !"
+  fi
+
+  if [[ $(pgrep -laf nezha-agent) ]]; then
+    hint "nezha-agent is already running !"
+  else
+    run_agent
+    info "nezha-agent runs again !"
+  fi
+}
+
+run() {
+  echo "Server is running on port : ${SERVER_PORT}"
+  run_caddy
+  run_cloudflared
+  run_dashboard
+  run_agent
+
+  if [ -n "$openkeepalive" ] && [ "$openkeepalive" != "0" ]; then
+    while true
+    do
+    keep_alive
+    sleep 50
+    done
+  elif [ -z "$openkeepalive" ]; then
+    tail -f /dev/null
+  else
+    tail -f /dev/null
+  fi
+}
+
+run
