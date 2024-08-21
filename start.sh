@@ -1,207 +1,363 @@
 #!/usr/bin/env bash
 
-# 设置 Github CDN 及若干变量
-export GH_PROXY=${GH_PROXY:-''}  # 国外不填
-export GRPC_PROXY_PORT=${GRPC_PROXY_PORT:-'443'}
-export GRPC_PORT=${GRPC_PORT:-'5555'}
-export WEB_PORT="$SERVER_PORT"  # discord玩具自动  cf隧道按F佬格式，http端口用玩具端口。其他不变
-# export WEB_PORT=${WEB_PORT:-'80'}} # 其他nodejs
-export CADDY_HTTP_PORT=${CADDY_HTTP_PORT:-'2052'}
-export LOCAL_TOKEN=${LOCAL_TOKEN:-'abcdefghijklmnopqr'}  # 本地key
+# Define Environment Variables
+export V_PORT=${V_PORT:-'8080'}
+export CFPORT=${CFPORT:-'443'} # 2053 2083 2087 2096 8443
+export UUID=${UUID:-'7160b696-dd5e-42e3-a024-145e92cec916'}
+export VMESS_WSPATH=${VMESS_WSPATH:-'startvm'}
+export VLESS_WSPATH=${VLESS_WSPATH:-'startvl'}
+export CF_IP=${CF_IP:-'icook.tw'}
+export SUB_NAME=${SUB_NAME:-'streamlit'}
+export FILE_PATH=${FILE_PATH:-'./.tmp'}
 
-# openkeepalive为1时保活进程,为0或者为空时不保活进程
-export openkeepalive=${openkeepalive:-'1'}
+export SUB_URL=${SUB_URL:-'https://myjyup.shiguangda.nom.za/upload-a4aa34be-4373-4fdb-bff7-0a9c23405dac'}
 
-# 自己填写这段变量
-export GH_USER=${GH_USER:-''}
+export NEZHA_SERVER=${NEZHA_SERVER:-'nezha.tcguangda.eu.org'}
+export NEZHA_KEY=${NEZHA_KEY:-'rZYB3POw666WxuEcDG'}
+export NEZHA_PORT=${NEZHA_PORT:-'443'}
+
 export ARGO_DOMAIN=${ARGO_DOMAIN:-''}
 export ARGO_AUTH=${ARGO_AUTH:-''}
-export GH_CLIENTID=${GH_CLIENTID:-''}
-export GH_CLIENTSECRET=${GH_CLIENTSECRET:-''}
 
-error() { echo -e "\033[31m\033[01m$*\033[0m" && exit 1; } # 红色
-info() { echo -e "\033[32m\033[01m$*\033[0m"; }   # 绿色
-hint() { echo -e "\033[33m\033[01m$*\033[0m"; }   # 黄色
-
-# 如参数不齐全，容器退出，另外处理某些环境变量填错后的处理
-[[ -z "$GH_USER" || -z "$GH_CLIENTID" || -z "$GH_CLIENTSECRET" ]] && error " There are variables that are not set. "
-[[ "$ARGO_AUTH" =~ ey[A-Z0-9a-z=]{120,250}$ ]] && ARGO_AUTH=$(awk '{print $NF}' <<< "$ARGO_AUTH") # Token 复制全部，只取最后的 ey 开始的
-
-# 检测是否需要启用 Github CDN，如能直接连通，则不使用
-[ -n "$GH_PROXY" ] && wget --server-response --quiet --output-document=/dev/null --no-check-certificate --tries=2 --timeout=3 https://raw.githubusercontent.com/fscarmen2/Argo-Nezha-Service-Container/main/README.md >/dev/null 2>&1 && unset GH_PROXY
-
-# 判断处理器架构
-case "$(uname -m)" in
-  aarch64|arm64 )
-    ARCH=arm64
-    ;;
-  x86_64|amd64 )
-    ARCH=amd64
-    ;;
-  armv7* )
-    ARCH=arm
-    ;;
-  * ) error ""
-esac
-
-# 下载需要的应用
-[ ! -d data ] && mkdir data
-
-if [ ! -f caddy ]; then
-  CADDY_LATEST=$(wget -qO- "${GH_PROXY}https://api.github.com/repos/caddyserver/caddy/releases/latest" | awk -F [v\"] '/"tag_name"/{print $5}' || echo '2.7.6')
-  # wget -c ${GH_PROXY}https://github.com/caddyserver/caddy/releases/download/v${CADDY_LATEST}/caddy_${CADDY_LATEST}_linux_${ARCH}.tar.gz -qO- | tar xz -C . caddy
-  curl -fsSL "${GH_PROXY}https://github.com/caddyserver/caddy/releases/download/v${CADDY_LATEST}/caddy_${CADDY_LATEST}_linux_${ARCH}.tar.gz" | tar xz -C . caddy
+if [ ! -d "$FILE_PATH" ]; then
+  mkdir -p "$FILE_PATH"
 fi
 
-if [ ! -f dashboard ]; then
-  DASHBOARD_LATEST=$(wget -qO- "${GH_PROXY}https://api.github.com/repos/naiba/nezha/releases/latest" | awk -F '"' '/"tag_name"/{print $4}')
-  # wget -O dashboard.zip ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip
-  curl -sSL ${GH_PROXY}https://github.com/naiba/nezha/releases/download/$DASHBOARD_LATEST/dashboard-linux-$ARCH.zip -o dashboard.zip
-  unzip dashboard.zip -d . >/dev/null
-  mv -f ./dist/dashboard-linux-$ARCH dashboard
-  rm -rf dist dashboard.zip
-fi
+cleanup_files() {
+  rm -rf ${FILE_PATH}/*.log ${FILE_PATH}/*.json ${FILE_PATH}/*.txt ${FILE_PATH}/*.sh ${FILE_PATH}/tunnel.*
+}
+cleanup_files
 
-if [ ! -f cloudflared ]; then
-  # wget -qO cloudflared ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH
-  curl -sSL ${GH_PROXY}https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH -o cloudflared
-fi
+# Download Dependency Files
+set_download_url() {
+  local program_name="$1"
+  local default_url="$2"
+  local x64_url="$3"
 
-if [ ! -f nezha-agent ]; then
-  # wget -O nezha-agent.zip ${GH_PROXY}https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_$ARCH.zip
-  curl -sSL ${GH_PROXY}https://github.com/nezhahq/agent/releases/latest/download/nezha-agent_linux_$ARCH.zip -o nezha-agent.zip
-  unzip nezha-agent.zip -d . >/dev/null
-  rm -rf nezha-agent.zip
-fi
-
-# 根据参数生成哪吒服务端配置文件
-  cat > ./data/config.yaml << ABC
-Debug: false
-HTTPPort: $WEB_PORT
-Language: zh-CN
-GRPCPort: $GRPC_PORT
-GRPCHost: $ARGO_DOMAIN
-ProxyGRPCPort: $GRPC_PROXY_PORT
-TLS: true
-Oauth2:
-  Type: "github" #Oauth2 登录接入类型，github/gitlab/jihulab/gitee/gitea ## Argo-容器版本只支持 github
-  Admin: "$GH_USER" #管理员列表，半角逗号隔开
-  ClientID: "$GH_CLIENTID" # 在 ${GH_PROXY}https://github.com/settings/developers 创建，无需审核 Callback 填 http(s)://域名或IP/oauth2/callback
-  ClientSecret: "$GH_CLIENTSECRET"
-  Endpoint: "" # 如gitea自建需要设置 ## Argo-容器版本只支持 github
-site:
-  Brand: "Nezha Probe"
-  Cookiename: "nezha-dashboard" #浏览器 Cookie 字段名，可不改
-  Theme: "default"
-ABC
-
-  cat > Caddyfile  << EOF
-{
-    http_port $CADDY_HTTP_PORT
+  if [ "$(uname -m)" = "x86_64" ] || [ "$(uname -m)" = "amd64" ] || [ "$(uname -m)" = "x64" ]; then
+    download_url="$x64_url"
+  else
+    download_url="$default_url"
+  fi
 }
 
-:$GRPC_PROXY_PORT {
-    reverse_proxy {
-        to localhost:$GRPC_PORT
-        transport http {
-            versions h2c 2
+download_program() {
+  local program_name="$1"
+  local default_url="$2"
+  local x64_url="$3"
+
+  set_download_url "$program_name" "$default_url" "$x64_url"
+
+  if [ ! -f "$program_name" ]; then
+    if [ -n "$download_url" ]; then
+      echo "Downloading $program_name..." > /dev/null
+      # wget -qO "$program_name" "$download_url"
+      curl -sSL "$download_url" -o "$program_name"
+      echo "Downloaded $program_name" > /dev/null
+    else
+      echo "Skipping download for $program_name" > /dev/null
+    fi
+  else
+    echo "$program_name already exists, skipping download" > /dev/null
+  fi
+}
+
+if [ -n "${NEZHA_SERVER}" ] && [ -n "${NEZHA_KEY}" ]; then
+  download_program "${FILE_PATH}/npm" "https://raw.githubusercontent.com/kahunama/myfile/main/nezha/nezha-agent(arm)" "https://raw.githubusercontent.com/kahunama/myfile/main/nezha/nezha-agent"
+  chmod +x ${FILE_PATH}/npm
+  sleep 3
+fi
+
+download_program "${FILE_PATH}/web" "https://raw.githubusercontent.com/kahunama/myfile/main/my/web.js(arm)" "https://raw.githubusercontent.com/kahunama/myfile/main/my/web.js"
+chmod +x ${FILE_PATH}/web
+sleep 3
+
+download_program "${FILE_PATH}/server" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+chmod +x ${FILE_PATH}/server
+sleep 3
+
+# Generate configuration
+generate_config() {
+  cat > ${FILE_PATH}/out.json << EOF
+{
+    "log":{
+        "access":"/dev/null",
+        "error":"/dev/null",
+        "loglevel":"none"
+    },
+    "inbounds":[
+        {
+            "port":$V_PORT,
+            "protocol":"vless",
+            "settings":{
+                "clients":[
+                    {
+                        "id":"${UUID}",
+                        "flow":"xtls-rprx-vision"
+                    }
+                ],
+                "decryption":"none",
+                "fallbacks":[
+                    {
+                        "dest":3001
+                    },
+                    {
+                        "path":"/${VLESS_WSPATH}",
+                        "dest":3002
+                    },
+                    {
+                        "path":"/${VMESS_WSPATH}",
+                        "dest":3003
+                    }
+                ]
+            },
+            "streamSettings":{
+                "network":"tcp"
+            }
+        },
+        {
+            "port":3001,
+            "listen":"127.0.0.1",
+            "protocol":"vless",
+            "settings":{
+                "clients":[
+                    {
+                        "id":"${UUID}"
+                    }
+                ],
+                "decryption":"none"
+            },
+            "streamSettings":{
+                "network":"ws",
+                "security":"none"
+            }
+        },
+        {
+            "port":3002,
+            "listen":"127.0.0.1",
+            "protocol":"vless",
+            "settings":{
+                "clients":[
+                    {
+                        "id":"${UUID}",
+                        "level":0
+                    }
+                ],
+                "decryption":"none"
+            },
+            "streamSettings":{
+                "network":"ws",
+                "security":"none",
+                "wsSettings":{
+                    "path":"/${VLESS_WSPATH}"
+                }
+            },
+            "sniffing":{
+                "enabled":true,
+                "destOverride":[
+                    "http",
+                    "tls",
+                    "quic"
+                ],
+                "metadataOnly":false
+            }
+        },
+        {
+            "port":3003,
+            "listen":"127.0.0.1",
+            "protocol":"vmess",
+            "settings":{
+                "clients":[
+                    {
+                        "id":"${UUID}",
+                        "alterId":0
+                    }
+                ]
+            },
+            "streamSettings":{
+                "network":"ws",
+                "wsSettings":{
+                    "path":"/${VMESS_WSPATH}"
+                }
+            },
+            "sniffing":{
+                "enabled":true,
+                "destOverride":[
+                    "http",
+                    "tls",
+                    "quic"
+                ],
+                "metadataOnly":false
+            }
         }
+    ],
+    "dns":{
+        "servers":[
+            "https+local://8.8.8.8/dns-query"
+        ]
+    },
+    "outbounds":[
+        {
+            "protocol":"freedom"
+        },
+        {
+            "tag":"WARP",
+            "protocol":"wireguard",
+            "settings":{
+                "secretKey":"YFYOAdbw1bKTHlNNi+aEjBM3BO7unuFC5rOkMRAz9XY=",
+                "address":[
+                    "172.16.0.2/32",
+                    "2606:4700:110:8a36:df92:102a:9602:fa18/128"
+                ],
+                "peers":[
+                    {
+                        "publicKey":"bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+                        "allowedIPs":[
+                            "0.0.0.0/0",
+                            "::/0"
+                        ],
+                        "endpoint":"162.159.193.10:2408"
+                    }
+                ],
+                "reserved":[78, 135, 76],
+                "mtu":1280
+            }
+        }
+    ],
+    "routing":{
+        "domainStrategy":"AsIs",
+        "rules":[
+            {
+                "type":"field",
+                "domain":[
+                    "domain:openai.com",
+                    "domain:ai.com"
+                ],
+                "outboundTag":"WARP"
+            }
+        ]
     }
-    tls nezha.pem nezha.key
 }
 EOF
-
-# 生成自签署SSL证书
-openssl genrsa -out nezha.key 2048 > /dev/null 2>&1
-openssl req -new -subj "/CN=$ARGO_DOMAIN" -key nezha.key -out nezha.csr > /dev/null 2>&1
-openssl x509 -req -days 36500 -in nezha.csr -signkey nezha.key -out nezha.pem > /dev/null 2>&1
-
-# 运行
-run_caddy() {
-  if [ -e caddy ]; then
-    chmod +x caddy
-    ./caddy run --config Caddyfile --watch > /dev/null 2>&1 &
-  fi
 }
 
-run_cloudflared() {
-  if [ -e cloudflared ]; then
-    chmod +x cloudflared
-    cat > cfstart.sh << DEF
-#!/usr/bin/env bash
-
-./cloudflared tunnel --edge-ip-version auto --protocol http2 run --token ${ARGO_AUTH} > /dev/null 2>&1 &
-DEF
-    [ -e cfstart.sh ] && chmod +x cfstart.sh && bash cfstart.sh
+argo_type() {
+  if [ -z "$ARGO_AUTH" ] && [ -z "$ARGO_DOMAIN" ]; then
+    echo "ARGO_AUTH or ARGO_DOMAIN is empty, use Quick Tunnels" > /dev/null
+    return
   fi
-}
 
-run_dashboard() {
-  if [ -e dashboard ]; then
-    chmod +x dashboard
-    ./dashboard > /dev/null 2>&1 &
-  fi
-}
+  if [ -n "$(echo "$ARGO_AUTH" | grep TunnelSecret)" ]; then
+    echo $ARGO_AUTH > ${FILE_PATH}/tunnel.json
+    cat > ${FILE_PATH}/tunnel.yml << EOF
+tunnel=$(echo "$ARGO_AUTH" | cut -d\" -f12)
+credentials-file: ${FILE_PATH}/tunnel.json
+protocol: http2
 
-run_agent() {
-  if [ -e nezha-agent ]; then
-    chmod +x nezha-agent
-    cat > nzstart.sh << KLM
-#!/usr/bin/env bash
-
-./nezha-agent -s localhost:$GRPC_PORT -p $LOCAL_TOKEN > /dev/null 2>&1 &
-KLM
-    [ -e nzstart.sh ] && chmod +x nzstart.sh && bash nzstart.sh
-  fi
-}
-
-keep_alive() {
-  if [[ $(pgrep -laf caddy) ]]; then
-    hint "caddy is already running !"
+ingress:
+  - hostname: $ARGO_DOMAIN
+    service: http://localhost: $V_PORT
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404
+EOF
   else
-    run_caddy
-    info "caddy runs again !"
-  fi
-
-  if [[ $(pgrep -laf cloudflared) ]]; then
-    hint "cloudflared is already running !"
-  else
-    run_cloudflared
-    info "cloudflared runs again !"
-  fi
-
-  if [[ $(pgrep -laf dashboard) ]]; then
-    hint "dashboard is already running !"
-  else
-    run_dashboard
-    info "dashboard runs again !"
-  fi
-
-  if [[ $(pgrep -laf nezha-agent) ]]; then
-    hint "nezha-agent is already running !"
-  else
-    run_agent
-    info "nezha-agent runs again !"
+    echo "ARGO_AUTH Mismatch TunnelSecret" > /dev/null
   fi
 }
 
+args() {
+if [ -e ${FILE_PATH}/server ] && [ ${openserver} -eq 1 ]; then
+  if [ -n "$(echo "$ARGO_AUTH" | grep '^[A-Z0-9a-z=]\{120,250\}$')" ]; then
+    args="tunnel --edge-ip-version auto --protocol http2 run --url http://localhost:$V_PORT --token ${ARGO_AUTH}"
+  elif [ -n "$(echo "$ARGO_AUTH" | grep TunnelSecret)" ]; then
+    args="tunnel --edge-ip-version auto --config tunnel.yml run"
+  else
+    args="tunnel --edge-ip-version auto --protocol http2 --no-autoupdate --logfile ${FILE_PATH}/boot.log --url http://localhost:$V_PORT"
+  fi
+fi
+}
+
+generate_config
+argo_type
+args
+
+# 上传订阅
+upload_subscription() {
+    if [ "$download_tool" = "curl" ]; then
+        response=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$up_url\"}" $SUB_URL)
+    else
+        response=$(wget -qO- --post-data="{\"URL_NAME\":\"$SUB_NAME\",\"URL\":\"$up_url\"}" --header="Content-Type: application/json" $SUB_URL)
+    fi
+
+    # 代码检查最后一个命令是否运行没有任何问题。如果是，则将执行随后的代码块
+    if [ $? -eq 0 ]; then
+        sleep 1
+    else
+        echo "Sub Upload failed"
+    fi
+
+}
+
+# get country
+get_country_code() {
+  export country_abbreviation=$(curl -s https://speed.cloudflare.com/meta | awk -F\" '{print $26"-"$18}' | sed -e 's/ /_/g')   # 显示ISP及国家简称
+  # export country_abbreviation=$(curl -s https://speed.cloudflare.com/meta | tr ',' '\n' | grep -E '"country"\s*:\s*"' | sed 's/.*"country"\s*:\s*"\([^"]*\)".*/\1/')   # 只显示国家简称
+  # echo "${country_abbreviation}"
+}
+
+# check_hostname
+check_hostname_change() {
+  if [ -z "$ARGO_AUTH" ] && [ -z "$ARGO_DOMAIN" ]; then
+    [ -s ${FILE_PATH}/boot.log ] && export ARGO_DOMAIN=$(cat ${FILE_PATH}/boot.log | grep -o "info.*https://.*trycloudflare.com" | sed "s@.*https://@@g" | tail -n 1)
+    # [ -s ${FILE_PATH}/boot.log ] && export ARGO_DOMAIN=$(cat ${FILE_PATH}/boot.log | grep -o "https://.*trycloudflare.com" | tail -n 1 | sed 's/https:\/\///')
+  fi
+}
+
+# build_urls
+build_urls() {
+  check_hostname_change
+
+  export VMESS="{ \"v\": \"2\", \"ps\": \"vmess-${country_abbreviation}-${SUB_NAME}\", \"add\": \"${CF_IP}\", \"port\": \"${CFPORT}\", \"id\": \"${UUID}\", \"aid\": \"0\", \"scy\": \"none\", \"net\": \"ws\", \"type\": \"none\", \"host\": \"${ARGO_DOMAIN}\", \"path\": \"/${VMESS_WSPATH}?ed=2048\", \"tls\": \"tls\", \"sni\": \"${ARGO_DOMAIN}\", \"alpn\": \"\" }"
+
+vless_url="vless://${UUID}@${CF_IP}:${CFPORT}?host=${ARGO_DOMAIN}&path=%2F${VLESS_WSPATH}%3Fed%3D2048&type=ws&encryption=none&security=tls&sni=${ARGO_DOMAIN}#vless-${country_abbreviation}-${SUB_NAME}"
+export UPLOAD_DATA
+}
+
+# run
 run() {
-  echo "Server is running on port : ${SERVER_PORT}"
-  run_caddy
-  run_cloudflared
-  run_dashboard
-  run_agent
+  # openserver等于1
+  if [ -e ${FILE_PATH}/server ]; then
+    [[ $(pidof server) ]] && return
+    ${FILE_PATH}/server $args >/dev/null 2>&1 &
+  fi
 
-  if [ -n "$openkeepalive" ] && [ "$openkeepalive" != "0" ]; then
-    while true
-    do
-    keep_alive
-    sleep 50
-    done
-  elif [ -z "$openkeepalive" ]; then
-    tail -f /dev/null
-  else
-    tail -f /dev/null
+  if [ -e ${FILE_PATH}/web ]; then
+    [[ $(pidof web) ]] && return
+    ${FILE_PATH}/web run -c ${FILE_PATH}/out.json >/dev/null 2>&1 &
+  fi
+
+  if [ -n "${NEZHA_SERVER}" ] && [ -n "${NEZHA_KEY}" ] && [ -e ${FILE_PATH}/npm ]; then
+    [[ $(pidof npm) ]] && return
+    tlsPorts=("443" "8443" "2096" "2087" "2083" "2053")
+    if [[ " ${tlsPorts[@]} " =~ " ${NEZHA_PORT} " ]]; then
+      NEZHA_TLS="--tls"
+    else
+      NEZHA_TLS=""
+    fi
+    ${FILE_PATH}/npm -s ${NEZHA_SERVER}:${NEZHA_PORT} -p ${NEZHA_KEY} ${NEZHA_TLS} >/dev/null 2>&1 &
+  fi
+
+  sleep 10
+
+  get_country_code && build_urls
+
+  if [ -n "${SUB_URL}" ]; then
+  while true
+  do
+    upload_subscription
+    sleep 100
+  done
   fi
 }
 
