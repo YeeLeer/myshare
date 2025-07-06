@@ -13,7 +13,7 @@ FILE_PATH = os.environ.get('FILE_PATH', './.tmp')
 XCONF_PATH = os.path.join(FILE_PATH, 'xconf')
 INTERVAL_SECONDS = int(os.environ.get("TIME", 100))
 OPENSERVER = os.environ.get('OPENSERVER', 'true').lower() == 'true'
-KEEPALIVE = os.environ.get('KEEPALIVE', 'false').lower() == 'true'
+KEEPALIVE = os.environ.get('KEEPALIVE', 'true').lower() == 'true'
 CFIP = os.environ.get('CFIP', 'ip.sb')
 PORT = int(os.environ.get('SERVER_PORT') or os.environ.get('PORT') or 3000)
 V_PORT = int(os.environ.get('V_PORT', 8080))
@@ -41,7 +41,7 @@ def createFolder(folderPath):
     else:
         print(f"{folderPath} already exists")
 
-pathsToDelete = ['bot', 'web', 'npm', 'config.yml', 'xconf', 'tunnel.json', 'tunnel.yml', 'boot.log', 'log.txt']
+pathsToDelete = ['config.yml', 'xconf', 'tunnel.json', 'tunnel.yml', 'boot.log', 'log.txt']
 def cleanupOldFiles():
     for file in pathsToDelete:
         filePath = os.path.join(FILE_PATH, file)
@@ -388,8 +388,8 @@ insecure_tls: false
 ip_report_period: 1800
 report_delay: 4
 server: {NEZHA_SERVER}:{NEZHA_PORT}
-skip_connection_count: true
-skip_procs_count: true
+skip_connection_count: false
+skip_procs_count: false
 temperature: false
 tls: {NEZHA_TLS}
 use_gitee_to_upgrade: false
@@ -591,32 +591,6 @@ def generate_links(UPLOAD_DATA):
 
 async def cleanfiles():
     await asyncio.sleep(60)
-
-    if KEEPALIVE:
-        files_to_delete = []
-    else:
-        files_to_delete = [
-            os.path.join(FILE_PATH, 'bot'),
-            os.path.join(FILE_PATH, 'web'),
-            os.path.join(FILE_PATH, 'npm'),
-            os.path.join(FILE_PATH, 'config.yml'),
-            os.path.join(FILE_PATH, 'tunnel.json'),
-            os.path.join(FILE_PATH, 'tunnel.yml'),
-            os.path.join(FILE_PATH, 'xconf')
-        ]
-
-    for filePath in files_to_delete:
-        try:
-            if os.path.exists(filePath):
-                if os.path.isdir(filePath):
-                    shutil.rmtree(filePath)
-                else:
-                    os.remove(filePath)
-                # print(f"{filePath} deleted")
-        except Exception as error:
-            # print(f"Failed to delete {filePath}: {error}")
-            pass
-
     os.system('cls' if os.name == 'nt' else 'clear')
     print('App is running')
 
