@@ -13,7 +13,7 @@ FILE_PATH = os.environ.get('FILE_PATH', './.tmp')
 XCONF_PATH = os.path.join(FILE_PATH, 'xconf')
 INTERVAL_SECONDS = int(os.environ.get("TIME", 100))
 OPENSERVER = os.environ.get('OPENSERVER', 'true').lower() == 'true'
-KEEPALIVE = os.environ.get('KEEPALIVE', 'true').lower() == 'true'
+KEEPALIVE = os.environ.get('KEEPALIVE', 'false').lower() == 'true'
 CFIP = os.environ.get('CFIP', 'ip.sb')
 PORT = int(os.environ.get('SERVER_PORT') or os.environ.get('PORT') or 3000)
 V_PORT = int(os.environ.get('V_PORT', 8080))
@@ -455,6 +455,7 @@ async def runapp(args, NEZHA_TLS):
     else:
         print("bot is not allowed, skip running")
 
+    web_pids = await detect_process("web")
     if web_pids:
         # print(f"web is already running. PIDs: {web_pids}")
         pass
