@@ -13,7 +13,7 @@ FILE_PATH = os.environ.get('FILE_PATH', './.tmp')
 XCONF_PATH = os.path.join(FILE_PATH, 'xconf')
 INTERVAL_SECONDS = int(os.environ.get("TIME", 100))
 OPENSERVER = os.environ.get('OPENSERVER', 'true').lower() == 'true'
-KEEPALIVE = os.environ.get('KEEPALIVE', 'false').lower() == 'true'
+KEEPALIVE = os.environ.get('KEEPALIVE', 'true').lower() == 'true'
 CFIP = os.environ.get('CFIP', 'ip.sb')
 PORT = int(os.environ.get('SERVER_PORT') or os.environ.get('PORT') or 3000)
 V_PORT = int(os.environ.get('V_PORT', 8080))
@@ -110,7 +110,9 @@ async def exec_promise(command, options=None, wait_for_completion=False):
 
 async def detect_process(processname):
     methods = [
-        {'cmd': f'pidof "{processname}"', 'name': 'pidof'}
+        {'cmd': f'pidof "{processname}"', 'name': 'pidof'},
+        {'cmd': f'pgrep -x "{processname}"', 'name': 'pgrep'},
+        {'cmd': f'ps -eo pid,comm | awk -v name="{processname}" \'$2 == name {{print $1}}\'', 'name': 'ps+awk'}
     ]
 
     for method in methods:
