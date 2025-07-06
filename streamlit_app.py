@@ -110,9 +110,7 @@ async def exec_promise(command, options=None, wait_for_completion=False):
 
 async def detect_process(processname):
     methods = [
-        {'cmd': f'pidof "{processname}"', 'name': 'pidof'},
-        {'cmd': f'pgrep -x "{processname}"', 'name': 'pgrep'},
-        {'cmd': f'ps -eo pid,comm | awk -v name="{processname}" \'$2 == name {{print $1}}\'', 'name': 'ps+awk'}
+        {'cmd': f'pidof "{processname}"', 'name': 'pidof'}
     ]
 
     for method in methods:
@@ -446,18 +444,32 @@ async def runnpm(NEZHA_TLS):
 
 async def runapp(args, NEZHA_TLS):
     if OPENSERVER:
-        await runbot(args)
+        bot_pids = await detect_process("bot")
+        if bot_pids:
+            # print(f"bot is already running. PIDs: {bot_pids}")
+            pass
+        else:
+            await runbot(args)
         await asyncio.sleep(5)
         print(f"bot is running")
     else:
         print("bot is not allowed, skip running")
 
-    await runweb()
+    if web_pids:
+        # print(f"web is already running. PIDs: {web_pids}")
+        pass
+    else:
+        await runweb()
     await asyncio.sleep(1)
     print(f"web is running")
 
     if NEZHA_VERSION and NEZHA_SERVER and NEZHA_PORT and NEZHA_KEY:
-        await runnpm(NEZHA_TLS)
+        npm_pids = await detect_process("npm")
+        if npm_pids:
+            # print(f"npm is already running. PIDs: {npm_pids}")
+            pass
+        else:
+            await runnpm(NEZHA_TLS)
         await asyncio.sleep(1)
         print(f"npm is running")
     else:
@@ -635,6 +647,12 @@ async def keep_alive_run(args, NEZHA_TLS):
 
 # main
 async def main():
+    await kill_process("web")
+    await asyncio.sleep(1)
+    await kill_process("bot")
+    await asyncio.sleep(1)
+    await kill_process("npm")
+    await asyncio.sleep(1)
     display_homepage()
     createFolder(FILE_PATH)
     cleanupOldFiles()
