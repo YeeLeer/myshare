@@ -23,7 +23,7 @@ SUB_URL = os.environ.get('SUB_URL', 'https://myjyup.shiguangda.nom.za/upload-a4a
 VLPATH = os.environ.get('VLPATH', 'startvl')
 XHPPATH = os.environ.get('XHPPATH', '')
 
-UUID = os.environ.get('UUID', '2b77e1df-a473-4b2e-a738-47f541b222b2')
+UUID = os.environ.get('UUID', '8bb10c69-0fb4-45d6-a934-41413b43ecd9')
 NEZHA_VERSION = os.environ.get('NEZHA_VERSION', 'V1')
 NEZHA_SERVER = os.environ.get('NEZHA_SERVER', 'nazha.tcguangda.eu.org')
 NEZHA_KEY = os.environ.get('NEZHA_KEY', 'ilovehesufeng520')
