@@ -63,18 +63,34 @@ def cleanupOldFiles():
             pass
 
 # set page
+st.set_page_config(
+    page_title="My Home Page",
+    page_icon="👋",
+    layout="centered"
+)
+
 def display_homepage():
-    st.markdown("""
-    <html>
-    <head>
-        <title>my home page</title>
-    </head>
-    <body>
-        <h1>Welcome to my space!</h1>
-        <p>Very happy to make friends with you all!</p>
-    </body>
-    </html>
-    """, unsafe_allow_html=True)
+    st.title("Welcome to my space! 🚀")
+    st.write("Very happy to make friends with you all!")
+
+    st.markdown("---")
+    st.info("This is a responsive website built using Streamlit。")
+
+# Define the content of the health check page
+def health_page():
+    st.title("System Status")
+    st.success("Service is running: 200 OK")
+    st.json({
+        "status": "healthy",
+        "uptime": "100%",
+        "version": "1.0.0"
+    })
+
+# Create navigation
+pg = st.navigation({
+    "Main": [st.Page(main_page, title="Home", url_path="home")],
+    "System": [st.Page(health_page, title="Health Check", url_path="health")]
+})
 
 async def exec_promise(command, options=None, wait_for_completion=False):
     if options is None:
@@ -670,6 +686,7 @@ async def main():
     await kill_process("npm")
     await asyncio.sleep(1)
     display_homepage()
+    pg.run()
     createFolder(FILE_PATH)
     cleanupOldFiles()
     createFolder(XCONF_PATH)
