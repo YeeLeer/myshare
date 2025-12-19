@@ -19,6 +19,7 @@ PORT = int(os.environ.get('SERVER_PORT') or os.environ.get('PORT') or 3000)
 V_PORT = int(os.environ.get('V_PORT', 8080))
 CFPORT = int(os.environ.get('CFPORT', 443))
 SUB_URL = os.environ.get('SUB_URL', 'https://myjyup.shiguangda.nom.za/upload-a4aa34be-4373-4fdb-bff7-0a9c23405dac')
+MYIP_URL = os.environ.get('MYIP_URL', '')
 
 VLPATH = os.environ.get('VLPATH', 'startvl')
 XHPPATH = os.environ.get('XHPPATH', '')
@@ -523,7 +524,7 @@ def getArgoDomainFromLog():
         return None
 
 def buildurl(argo_domain, ISP):
-    Node_DATA = None
+    Node_DATA = ""
     if VLPATH:
         Node_DATA = f"vless://{UUID}@{CFIP}:{CFPORT}?encryption=none&security=tls&sni={argo_domain}&type=ws&host={argo_domain}&path=%2F{VLPATH}%3Fed%3D2560#{ISP}-{SUB_NAME}"
     elif XHPPATH:
@@ -575,26 +576,38 @@ async def extract_domains(args, ISP):
     # print(UPLOAD_DATA)
     return argo_domain, UPLOAD_DATA
 
-def get_cloudflare_meta():
-    try:
-        with requests.Session() as session:
-            response = session.get('https://speed.cloudflare.com/meta')
-            data = response.json()
-            return data
-    except Exception as error:
-        print(f"Failed to get Cloudflare meta: {error}")
-        return None
+def clean_string(s):
+    if isinstance(s, str):
+        result = re.sub(r'[\s,.]', '_', s)
+        result = re.sub(r'_+', '_', result)
+        return result.strip('_')
+    return s
 
-def get_isp_and_ip():
-    data = get_cloudflare_meta()
-    if data:
-        # SERVERIP = data['clientIp']
-        # print(SERVERIP)
-        fields1 = data['country']
-        fields2 = data['asOrganization']
-        ISP = f"{fields1}-{fields2}".replace(' ', '_')
-        # print(ISP)
-        return ISP
+def get_ip_and_isp():
+    ipapiurl = [
+        'https://api.ip.sb/geoip/',
+        'http://ip-api.com/json/',
+    ]
+
+    if MYIP_URL and MYIP_URL.strip():
+        ipapiurl.append(MYIP_URL.strip())
+
+    for url in ipapiurl:
+        try:
+            response = requests.get(url, timeout=3)
+            data = response.json()
+
+            raw_ip = data.get('ip') or data.get('query')
+            if raw_ip:
+                country = data.get('country_code') or data.get('countryCode') or 'UN'
+                isp_raw = data.get('isp', 'Unknown')
+                isp_cleaned = clean_string(isp_raw).replace(' ', '_')
+                ISP = f"{country}_{isp_cleaned}"
+                # print(ISP)
+                return ISP
+        except:
+            continue
+    return 'UN'
 
 def generate_links(UPLOAD_DATA):
     if UPLOAD_DATA:
@@ -663,7 +676,7 @@ async def main():
 
     generate_config()
     download_files()
-    ISP = get_isp_and_ip()
+    ISP = get_ip_and_isp()
     if OPENSERVER:
         argo_config()
         args = get_cloud_flare_args()
