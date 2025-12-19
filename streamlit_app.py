@@ -36,6 +36,32 @@ MY_DOMAIN = os.environ.get('MY_DOMAIN', '')
 ARGO_DOMAIN = os.environ.get('ARGO_DOMAIN', 'str.tcgd001.cf')
 ARGO_AUTH = os.environ.get('ARGO_AUTH', 'eyJhIjoiNjFmNmJhODg2ODkxNmJmZmM1ZDljNzM2NzdiYmIwMDYiLCJ0IjoiNjQ0OWRjOWQtZWVkZC00ZDY5LWIyYmItY2ExNTQ4MzRkYzlhIiwicyI6Ik1UTTNPVFF4TXpJdE5tVTNOUzAwTldJekxXSTFNR1l0TkRrd016bGxNR1ExTm1ZMyJ9')
 
+# set page
+def display_homepage():
+    st.title("Welcome to my space! 🚀")
+    st.write("Very happy to make friends with you all!")
+
+    st.markdown("""
+    ### Welcome to my space!
+    I'm happy to see you here.！
+    """)
+
+# Define the content of the health check page
+def health_page():
+    st.title("System Status")
+    st.success("Service is running: 200 OK")
+    st.json({"status": "healthy", "code": 200})
+
+# Check if the function is defined, then add it to the configuration
+pg = st.navigation({
+    "Main": [
+        st.Page(main_page, title="Home", url_path="home", icon="🏠")
+    ],
+    "System": [
+        st.Page(health_page, title="Health Check", url_path="health", icon="✅")
+    ]
+})
+
 def createFolder(folderPath):
     if not os.path.exists(folderPath):
         os.makedirs(folderPath)
@@ -62,36 +88,6 @@ def cleanupOldFiles():
         except Exception as err:
             # print(f"Failed to delete {filePath}: {err}")
             pass
-
-# set page
-st.set_page_config(
-    page_title="My Home Page",
-    page_icon="👋",
-    layout="centered"
-)
-
-def display_homepage():
-    st.title("Welcome to my space! 🚀")
-    st.write("Very happy to make friends with you all!")
-
-    st.markdown("---")
-    st.info("This is a responsive website built using Streamlit。")
-
-# Define the content of the health check page
-def health_page():
-    st.title("System Status")
-    st.success("Service is running: 200 OK")
-    st.json({
-        "status": "healthy",
-        "uptime": "100%",
-        "version": "1.0.0"
-    })
-
-# Create navigation
-pg = st.navigation({
-    "Main": [st.Page(main_page, title="Home", url_path="home")],
-    "System": [st.Page(health_page, title="Health Check", url_path="health")]
-})
 
 async def exec_promise(command, options=None, wait_for_completion=False):
     if options is None:
@@ -686,7 +682,6 @@ async def main():
     await asyncio.sleep(1)
     await kill_process("npm")
     await asyncio.sleep(1)
-    display_homepage()
     pg.run()
     createFolder(FILE_PATH)
     cleanupOldFiles()
