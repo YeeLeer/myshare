@@ -38,13 +38,17 @@ ARGO_AUTH = os.environ.get('ARGO_AUTH', 'eyJhIjoiNjFmNmJhODg2ODkxNmJmZmM1ZDljNzM
 
 # set page
 def main_page():
-    st.title("Welcome!")
-    st.write("Streamlit app homepage!")
-
     st.markdown("""
-    ### Welcome to my space!  🚀
-    I'm happy to see you here.！
-    """)
+    <html>
+    <head>
+        <title>my home page</title>
+    </head>
+    <body>
+        <h1>Welcome to my space!</h1>
+        <p>Very happy to make friends with you all!</p>
+    </body>
+    </html>
+    """, unsafe_allow_html=True)
 
 # Define the content of the health check page
 def health_page():
