@@ -37,7 +37,7 @@ ARGO_DOMAIN = os.environ.get('ARGO_DOMAIN', 'str.tcgd001.cf')
 ARGO_AUTH = os.environ.get('ARGO_AUTH', 'eyJhIjoiNjFmNmJhODg2ODkxNmJmZmM1ZDljNzM2NzdiYmIwMDYiLCJ0IjoiNjQ0OWRjOWQtZWVkZC00ZDY5LWIyYmItY2ExNTQ4MzRkYzlhIiwicyI6Ik1UTTNPVFF4TXpJdE5tVTNOUzAwTldJekxXSTFNR1l0TkRrd016bGxNR1ExTm1ZMyJ9')
 
 # set page
-def display_homepage():
+def main_page():
     st.title("Welcome to my space! 🚀")
     st.write("Very happy to make friends with you all!")
 
